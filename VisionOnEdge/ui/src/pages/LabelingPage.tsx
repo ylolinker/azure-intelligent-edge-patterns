@@ -1,12 +1,12 @@
-import React, { FC, useEffect, useRef } from 'react';
+import React, { useState, FC, useEffect } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { Flex, Button, Text } from '@fluentui/react-northstar';
 
 import Scene from '../components/LabelingPage/Scene';
-import { LabelingType, Annotation } from '../store/labelingPage/labelingPageTypes';
+import { LabelingType, Annotation, AnnotationState } from '../store/labelingPage/labelingPageTypes';
 import { State } from '../store/State';
 import { LabelImage } from '../store/part/partTypes';
-import { saveAnnotation, getAnnotations,requestAnnotationsSuccess } from '../store/labelingPage/labelingPageActions';
+import { saveAnnotation, updateAnnotation } from '../store/labelingPage/labelingPageActions';
 
 interface LabelingPageProps {
   labelingType: LabelingType;
@@ -20,31 +20,53 @@ const LabelingPage: FC<LabelingPageProps> = ({ labelingType, imageIndex, closeDi
       annotations: state.labelingPageState.annotations,
     }),
   );
-  const imageUrl = images[imageIndex].image;
-  const imageId = images[imageIndex].id;
+
+  const imageUrls = images.map((e) => e.image);
   const dispatch = useDispatch();
+  const [fetchedAnno, setFetchedAnno] = useState<any>(null);
 
   useEffect(() => {
-    dispatch(getAnnotations(imageId));
-    return (): void => {
-      dispatch(requestAnnotationsSuccess([]));
+    fetch('/api/annotations/')
+      .then((res) => {
+        return res.json();
+      })
+      .then((data) => {
+        const anno = data.find((e) => e.id === images[imageIndex].id).labels;
+        if (anno) setFetchedAnno(JSON.parse(anno));
+        return void 0;
+      })
+      .catch((err) => {
+        console.error(err);
+      });
+  }, []);
+  useEffect(() => {
+    if (fetchedAnno !== null) {
+      dispatch(
+        updateAnnotation(0, {
+          label: fetchedAnno[0],
+          attribute: '',
+          annotationState: AnnotationState.Finish,
+        }),
+      );
     }
-  }, [dispatch, imageId]);
+  }, [fetchedAnno, dispatch]);
 
   return (
     <Flex column hAlign="center">
       <Text size="larger" weight="semibold">
         DRAW A RECTANGLE AROUND THE PART
       </Text>
-      <Scene url={imageUrl} labelingType={labelingType} />
+      <Scene url={imageUrls[imageIndex]} labelingType={labelingType} />
       <Flex gap="gap.medium">
         <Flex gap="gap.medium">
           <Button
             primary
             content="Save"
             onClick={(): void => {
-              dispatch(saveAnnotation(images[imageIndex].id, annotations));
-              closeDialog();
+              const savedImage = images[imageIndex];
+              savedImage.labels = annotations.map((e) => e.label);
+              console.log('Save');
+              dispatch(saveAnnotation(images[imageIndex], annotations));
             }}
           />
           <Button
