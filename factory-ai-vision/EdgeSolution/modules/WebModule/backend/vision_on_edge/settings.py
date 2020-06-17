@@ -10,6 +10,7 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/3.0/ref/settings/
 """
 
+from configs.celery_config import CELERY_BROKER_URL_CONFIG
 from configs.app_insight import APP_INSIGHT_ON
 import config
 from configs.logging_config import LOGGING_CONFIG_PRODUCTION, LOGGING_CONFIG_DEV
@@ -43,6 +44,7 @@ INSTALLED_APPS = [
     'corsheaders',
     'cameras',
     'rest_framework',
+    'django_celery_results',
 ]
 
 MIDDLEWARE = [
@@ -56,6 +58,7 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
+
 
 if APP_INSIGHT_ON:
     from configs.app_insight import APP_INSIGHT_CONN_STR
@@ -172,3 +175,7 @@ print('  ENDPOINT:', ENDPOINT)
 print('************************************')
 
 LOGGING = LOGGING_CONFIG_PRODUCTION
+
+CELERY_BROKER_URL = CELERY_BROKER_URL_CONFIG
+CELERY_RESULT_BACKEND = 'django-db'
+CELERY_CACHE_BACKEND = 'django-cache'

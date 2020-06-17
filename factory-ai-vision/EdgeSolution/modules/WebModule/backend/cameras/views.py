@@ -24,12 +24,13 @@ from rest_framework import serializers, viewsets
 from rest_framework import status
 from rest_framework import filters
 from filters.mixins import FiltersMixin
-
+from django_celery_results.models import TaskResult
 
 import requests
 
 from distutils.util import strtobool
-from .models import Camera, Stream, Image, Location, Project, Part, Annotation, Setting, Train, Task
+from .models import Camera, Stream, Image, Location, Project, Part, Annotation, Setting, Train
+from .tasks import export_onnx_task
 from vision_on_edge.settings import TRAINING_KEY, ENDPOINT, IOT_HUB_CONNECTION_STRING, DEVICE_ID, MODULE_ID
 from configs.app_insight import APP_INSIGHT_INST_KEY
 
@@ -123,18 +124,23 @@ def update_train_status(project_id):
             logger.info(f'Preparing to deploy to inference')
             logger.info(f'Project is deployed before: {project_obj.deployed}')
             if not project_obj.deployed:
+                logger.info(f'Deploying')
                 if exports[0].download_uri:
                     # update_twin(iteration.id, exports[0].download_uri, camera.rtsp)
                     def _send(download_uri, rtsp, parts):
                         # FIXME
                         # logger.info(f'update rtsp {rtsp}')
                         # logger.info(f'update model {download_uri}')
-                        requests.get('http://'+inference_module_url()+'/update_cam',
-                                     params={'cam_type': 'rtsp', 'cam_source': rtsp})
-                        requests.get('http://'+inference_module_url() +
-                                     '/update_model', params={'model_uri': download_uri})
-                        requests.get('http://'+inference_module_url() +
-                                     '/update_parts', params={'parts': parts})
+                        try:
+                            requests.get('http://'+inference_module_url()+'/update_cam',
+                                         params={'cam_type': 'rtsp', 'cam_source': rtsp})
+                            requests.get('http://'+inference_module_url() +
+                                         '/update_model', params={'model_uri': download_uri})
+                            requests.get('http://'+inference_module_url() +
+                                         '/update_parts', params={'parts': parts})
+                            logger.info(f'Deploy complete')
+                        except:
+                            logger.exception('Deploy Occur Exception')
                     threading.Thread(target=_send, args=(
                         exports[0].download_uri, camera.rtsp, parts)).start()
 
@@ -356,16 +362,19 @@ class CameraViewSet(FiltersMixin, viewsets.ModelViewSet):
 
 class TaskSerializer(serializers.HyperlinkedModelSerializer):
     class Meta:
-        model = Task
-        fields = ['task_type', 'status', 'log', 'project']
+        model = TaskResult
+        fields = ['id', 'task_id', 'task_name',
+                  'status', 'date_created', 'date_done']
 
 
 class TaskViewSet(FiltersMixin, viewsets.ModelViewSet):
-    queryset = Task.objects.all()
+    queryset = TaskResult.objects.all()
     serializer_class = TaskSerializer
     filter_backends = (filters.OrderingFilter,)
     filter_mappings = {
-        'project': 'project',
+        'id': 'id',
+        'task_id':  'task_id',
+        'task_name': 'task_name',
     }
 #
 #
@@ -1104,10 +1113,8 @@ def pull_cv_project(request, project_id):
 
         # Partial Download
         if is_partial:
-            exporting_task_obj = Task.objects.create(
-                task_type='export_iteration', status='init', log='Just Started', project=project_obj)
-            exporting_task_obj.start_exporting()
-            return JsonResponse({'status': 'ok', 'task.id': exporting_task_obj.id})
+            task = export_onnx_task.delay(pk=project_obj.id)
+            return JsonResponse({'status': 'ok', 'task_id': task.id})
 
         # Full Download
         logger.info("Pulling Tagged Images...")
